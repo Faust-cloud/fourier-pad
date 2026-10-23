@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07090c">
+<title>傅里叶画板 · 用旋转的圆画任意一条线</title>
+<meta name="description" content="画任意一笔，用一组旋转的圆把它重新画出来。谐波越多越接近原图，可实时看误差变化。傅里叶级数的直观演示，纯前端、离线可用。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="傅里叶画板">
+<meta property="og:description" content="画任意一笔，用一组旋转的圆把它重新画出来。">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2307090c'/><circle cx='16' cy='16' r='9' fill='none' stroke='%234cc9f0' stroke-width='1.4'/><circle cx='16' cy='16' r='4.6' fill='none' stroke='%23ffd166' stroke-width='1.4'/><circle cx='20.6' cy='16' r='1.8' fill='%23ffd166'/></svg>">
+<style>
+  :root{
+    --bg:#07090c; --panel:rgba(18,22,28,.86); --line:rgba(255,255,255,.1);
+    --ink:#e9eef5; --sub:#7e8a98; --cy:#4cc9f0; --am:#ffd166;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif}
+  body{background:radial-gradient(120% 90% at 50% 0%,#10151c 0%,#07090c 62%)}
+  #cv{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair}
+
+  header{position:fixed;top:0;left:0;right:0;padding:calc(14px + env(safe-area-inset-top)) 18px 0;
+    display:flex;align-items:flex-start;justify-content:space-between;gap:12px;pointer-events:none;z-index:3}
+  h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.02em}
+  h1 span{color:var(--sub);font-weight:400}
+  .stats{display:flex;gap:14px;font-family:var(--mono);font-size:12px;color:var(--sub);
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:7px 11px;
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .stats b{color:var(--ink);font-weight:600}
+  #spec{display:block;width:110px;height:26px;margin-top:6px;opacity:.85}
+
+  #hint{position:fixed;left:50%;top:47%;transform:translate(-50%,-50%);text-align:center;
+    color:var(--sub);font-size:14px;line-height:1.9;pointer-events:none;z-index:2;transition:opacity .4s}
+  #hint b{display:block;color:var(--ink);font-size:16px;font-weight:600;margin-bottom:4px}
+
+  .bar{position:fixed;left:0;right:0;bottom:0;z-index:4;
+    padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top,rgba(7,9,12,.96),rgba(7,9,12,.72) 70%,transparent);
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px;justify-content:center}
+  .sub{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  button{font:inherit;font-size:13px;color:var(--ink);background:rgba(255,255,255,.06);
+    border:1px solid var(--line);border-radius:9px;padding:7px 11px;cursor:pointer;
+    transition:background .15s,border-color .15s;white-space:nowrap}
+  button:hover{background:rgba(255,255,255,.11)}
+  button.on{background:rgba(76,201,240,.16);border-color:rgba(76,201,240,.5);color:var(--cy)}
+  button:active{transform:scale(.97)}
+  .dial{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--sub);
+    background:rgba(255,255,255,.045);border:1px solid var(--line);border-radius:9px;padding:6px 10px}
+  .dial output{font-family:var(--mono);color:var(--ink);min-width:26px;text-align:right}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:84px;height:18px;background:transparent;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:rgba(255,255,255,.18)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+    background:var(--cy);margin-top:-5px;box-shadow:0 0 0 3px rgba(76,201,240,.18)}
+  input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:rgba(255,255,255,.18)}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border:0;border-radius:50%;background:var(--cy)}
+  @media (max-width:560px){
+    h1{font-size:13px}
+    .bar{gap:6px;padding-left:10px;padding-right:10px}
+    button{padding:6px 9px;font-size:12px}
+    input[type=range]{width:64px}
+    .dial{padding:5px 8px}
+    #spec{width:84px;height:22px}
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<header>
+  <div>
+    <h1>傅里叶画板 <span>· 旋转的圆</span></h1>
+    <canvas id="spec" width="220" height="52"></canvas>
+  </div>
+  <div class="stats">
+    <span>谐波 <b id="sN">0</b></span>
+    <span>误差 <b id="sE">—</b></span>
+  </div>
+</header>
+
+<div id="hint"><b>在这里随手画一笔</b>松手后，看一组旋转的圆把它重新画出来</div>
+
+<div class="bar" id="bar">
+  <div class="sub" id="presets">
+    <button data-p="draw" class="on">✎ 自己画</button>
+    <button data-p="square">方波</button>
+    <button data-p="tri">三角</button>
+    <button data-p="star">五角星</button>
+    <button data-p="heart">心形</button>
+    <button data-p="inf">∞</button>
+  </div>
+  <label class="dial">圆 <input id="harm" type="range" min="1" max="120" value="40"><output id="harmV">40</output></label>
+  <label class="dial">速度 <input id="spd" type="range" min="15" max="300" value="100"><output id="spdV">1.0×</output></label>
+  <button id="circles" class="on">显示圆</button>
+  <button id="replay">重播</button>
+</div>
+
+<script>
+'use strict';
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const specCv = document.getElementById('spec');
+const sctx = specCv.getContext('2d');
+const $ = s => document.querySelector(s);
+
+let W = 0, H = 0, scale = 1, cx = 0, cy = 0;
+
+/* ---------- 状态 ---------- */
+const N = 256;                 // 采样点数（也是重建的时域分辨率）
+let raw = [];                  // 当前正在画的原始点（屏幕坐标）
+let path = [];                 // 归一化后的路径（半径约 1）
+let coefs = [];                // 排序后的傅里叶系数
+let trail = [];                // 已画出的轨迹（归一化坐标）
+let t = 0;                     // 归一化时间 0..1
+let playing = false;
+let M = 40;                    // 使用的谐波数
+let speed = 1;
+let showCircles = true;
+let drawing = false;
+let errShown = '—';
+let dirty = true;             // 需要重绘一帧
+
+/* ---------- 尺寸 ---------- */
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = cv.clientWidth; H = cv.clientHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx = W / 2; cy = H / 2;
+  scale = Math.min(W, H) * 0.34;
+  drawFrame();
+}
+window.addEventListener('resize', resize);
+
+/* ---------- 几何工具 ---------- */
+const len = p => Math.hypot(p.x, p.y);
+
+// 按弧长等距重采样成 n 个点
+function resample(pts, n) {
+  if (pts.length < 2) return [];
+  const acc = [0];
+  for (let i = 1; i < pts.length; i++) {
+    acc.push(acc[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  }
+  const total = acc[acc.length - 1];
+  if (!total) return [];
+  const out = [];
+  let j = 0;
+  for (let i = 0; i < n; i++) {
+    const target = total * i / n;
+    while (j < acc.length - 2 && acc[j + 1] < target) j++;
+    const seg = acc[j + 1] - acc[j] || 1;
+    const r = (target - acc[j]) / seg;
+    out.push({
+      x: pts[j].x + (pts[j + 1].x - pts[j].x) * r,
+      y: pts[j].y + (pts[j + 1].y - pts[j].y) * r
+    });
+  }
+  return out;
+}
+
+// 把任意点集归一化到以原点为心、最大半径约 1
+function normalize(pts) {
+  if (!pts.length) return [];
+  let sx = 0, sy = 0;
+  for (const p of pts) { sx += p.x; sy += p.y; }
+  const mx = sx / pts.length, my = sy / pts.length;
+  let r = 0;
+  for (const p of pts) r = Math.max(r, Math.hypot(p.x - mx, p.y - my));
+  if (!r) r = 1;
+  return pts.map(p => ({ x: (p.x - mx) / r, y: (p.y - my) / r }));
+}
+
+// 离散傅里叶变换（朴素 O(N²)，N=256 足够快）
+function dft(pts) {
+  const n = pts.length, out = [];
+  for (let k = 0; k < n; k++) {
+    let re = 0, im = 0;
+    for (let i = 0; i < n; i++) {
+      const a = -2 * Math.PI * k * i / n;
+      const c = Math.cos(a), s = Math.sin(a);
+      re += pts[i].x * c - pts[i].y * s;
+      im += pts[i].x * s + pts[i].y * c;
+    }
+    out.push({ k, re: re / n, im: im / n, amp: Math.hypot(re, im) / n });
+  }
+  return out.sort((a, b) => b.amp - a.amp);
+}
+
+// 某个时刻用前 m 个谐波重建出的点
+function pointAt(time, m) {
+  let x = 0, y = 0;
+  const lim = Math.min(m, coefs.length);
+  for (let i = 0; i < lim; i++) {
+    const c = coefs[i];
+    const a = 2 * Math.PI * c.k * time;
+    const cs = Math.cos(a), sn = Math.sin(a);
+    x += c.re * cs - c.im * sn;
+    y += c.re * sn + c.im * cs;
+  }
+  return { x, y };
+}
+
+/* ---------- 设定路径 ---------- */
+function setPath(normalizedPts, keepMeta) {
+  path = normalizedPts;
+  const rs = resample(path, N);
+  if (rs.length < 8) { path = []; coefs = []; playing = false; drawFrame(); return; }
+  // resample 后再次中心化，保证圆的起点在图形质心
+  const centered = normalize(rs);
+  path = centered;
+  coefs = dft(centered);
+  trail = []; t = 0; playing = true;
+  $('#hint').style.opacity = 0;
+  drawSpectrum();
+  updateStats();
+}
+
+/* ---------- 绘制 ---------- */
+function drawFrame() {
+  ctx.clearRect(0, 0, W, H);
+
+  // 参考：原始路径（暗）
+  if (path.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(cx + path[0].x * scale, cy + path[0].y * scale);
+    for (let i = 1; i < path.length; i++) ctx.lineTo(cx + path[i].x * scale, cy + path[i].y * scale);
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(255,255,255,.13)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // 正在手绘的笔迹
+  if (drawing && raw.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(raw[0].x, raw[0].y);
+    for (let i = 1; i < raw.length; i++) ctx.lineTo(raw[i].x, raw[i].y);
+    ctx.strokeStyle = 'rgba(233,238,245,.62)';
+    ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  if (!playing || !coefs.length) return;
+
+  // 已画出的轨迹
+  if (trail.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(cx + trail[0].x * scale, cy + trail[0].y * scale);
+    for (let i = 1; i < trail.length; i++) ctx.lineTo(cx + trail[i].x * scale, cy + trail[i].y * scale);
+    ctx.strokeStyle = 'rgba(255,209,102,.28)';
+    ctx.lineWidth = 5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+  }
+
+  // 本轮：一圈套一圈
+  let px = 0, py = 0;
+  const lim = Math.min(M, coefs.length);
+  if (showCircles) {
+    for (let i = 0; i < lim; i++) {
+      const c = coefs[i];
+      const r = c.amp * scale;
+      if (r > 0.4) {
+        ctx.beginPath();
+        ctx.arc(cx + px * scale, cy + py * scale, r, 0, Math.PI * 2);
+        ctx.strokeStyle = i === 0 ? 'rgba(76,201,240,.42)' : 'rgba(76,201,240,.16)';
+        ctx.lineWidth = i === 0 ? 1.2 : 0.8;
+        ctx.stroke();
+      }
+      const a = 2 * Math.PI * c.k * t;
+      const cs = Math.cos(a), sn = Math.sin(a);
+      const nx = px + c.re * cs - c.im * sn;
+      const ny = py + c.re * sn + c.im * cs;
+      if (r > 2 && i < 26) {
+        ctx.beginPath();
+        ctx.moveTo(cx + px * scale, cy + py * scale);
+        ctx.lineTo(cx + nx * scale, cy + ny * scale);
+        ctx.strokeStyle = 'rgba(76,201,240,.34)';
+        ctx.lineWidth = 0.9;
+        ctx.stroke();
+      }
+      px = nx; py = ny;
+    }
+  } else {
+    const p = pointAt(t, M);
+    px = p.x; py = p.y;
+  }
+
+  // 笔尖
+  ctx.beginPath();
+  ctx.arc(cx + px * scale, cy + py * scale, 3.4, 0, Math.PI * 2);
+  ctx.fillStyle = '#4cc9f0';
+  ctx.shadowColor = 'rgba(76,201,240,.9)';
+  ctx.shadowBlur = 12;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+function drawSpectrum() {
+  const w = specCv.width, h = specCv.height;
+  sctx.clearRect(0, 0, w, h);
+  if (!coefs.length) return;
+  const top = coefs.slice(0, 60);
+  const maxA = Math.log1p(top[0].amp || 1);
+  const bw = w / top.length;
+  for (let i = 0; i < top.length; i++) {
+    const v = Math.log1p(top[i].amp) / (maxA || 1);
+    const bh = Math.max(1.5, v * h);
+    sctx.fillStyle = `rgba(76,201,240,${0.22 + 0.62 * v})`;
+    sctx.fillRect(i * bw, h - bh, Math.max(1, bw - 1.4), bh);
+  }
+}
+
+function updateStats() {
+  $('#sN').textContent = coefs.length ? Math.min(M, coefs.length) : M;
+  $('#sE').textContent = errShown;
+}
+
+// 计算当前谐波数下的平均误差（相对最大半径的百分比）
+function computeError() {
+  if (!coefs.length) { errShown = '—'; return; }
+  let sum = 0;
+  const step = 4;
+  let cnt = 0;
+  for (let i = 0; i < path.length; i += step) {
+    const p = pointAt(i / path.length, M);
+    const d = Math.hypot(p.x - path[i].x, p.y - path[i].y);
+    sum += d * d;                    // 均方根，不是均方
+    cnt++;
+  }
+  const rms = Math.sqrt(sum / cnt);
+  errShown = (rms * 100).toFixed(rms < 0.1 ? 2 : 1) + '%';
+}
+
+/* ---------- 动画 ---------- */
+let last = 0;
+function loop(now) {
+  const dt = last ? Math.min(now - last, 60) : 16;
+  last = now;
+  if (playing && coefs.length) {
+    t += (dt / 1000) * 0.25 * speed;   // 1.0× ≈ 4 秒转一圈
+    if (t >= 1) {
+      t -= 1;
+      // 只保留整圈轨迹的前半段，避免无限增长
+      trail = [];
+    }
+    const p = coefs.length ? pointAt(t, M) : null;
+    if (p) {
+      const g = trail[trail.length - 1];
+      if (!g || Math.hypot(g.x - p.x, g.y - p.y) < 0.06) trail.push(p);
+    }
+  }
+  if (playing || drawing || dirty) {
+    dirty = false;
+    drawFrame();
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ---------- 交互：画笔 ---------- */
+function pos(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId);
+  drawing = true; raw = [pos(e)];
+  playing = false; coefs = []; trail = [];
+  $('#hint').style.opacity = 0;
+  setPresetActive('draw');
+  drawFrame();
+});
+cv.addEventListener('pointermove', e => {
+  if (!drawing) return;
+  const p = pos(e);
+  const q = raw[raw.length - 1];
+  if (!q || Math.hypot(p.x - q.x, p.y - q.y) > 1.6) raw.push(p);
+  drawFrame();
+});
+cv.addEventListener('pointerup', () => {
+  if (!drawing) return;
+  drawing = false;
+  if (raw.length < 6) { raw = []; drawFrame(); return; }
+  const norm = normalize(raw);
+  raw = [];
+  setPath(norm);
+});
+cv.addEventListener('pointercancel', () => { drawing = false; raw = []; drawFrame(); });
+
+/* ---------- 预设图形 ---------- */
+function polyPerimeter(vs, samples) {
+  const pts = [];
+  for (let i = 0; i < vs.length; i++) {
+    const a = vs[i], b = vs[(i + 1) % vs.length];
+    pts.push(a, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  }
+  return resample(pts.concat([vs[0]]), samples);
+}
+function regular(n, r, rot) {
+  const vs = [];
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + rot + i * 2 * Math.PI / n;
+    vs.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+  }
+  return vs;
+}
+const PRESETS = {
+  square() { return polyPerimeter([{ x: -1, y: -1 }, { x: 1, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 }], N); },
+  tri() { return polyPerimeter(regular(3, 1.05, 0), N); },
+  star() {
+    const vs = [];
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 5;
+      const r = i % 2 ? 0.42 : 1.05;
+      vs.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+    }
+    return polyPerimeter(vs, N);
+  },
+  heart() {
+    const pts = [];
+    for (let i = 0; i < N * 2; i++) {
+      const a = i / (N * 2) * Math.PI * 2;
+      const x = 16 * Math.pow(Math.sin(a), 3);
+      const y = -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a));
+      pts.push({ x, y });
+    }
+    return resample(pts, N);
+  },
+  inf() {
+    const pts = [];
+    for (let i = 0; i < N * 2; i++) {
+      const a = i / (N * 2) * Math.PI * 2;
+      const d = 1 + Math.sin(a) * Math.sin(a);
+      pts.push({ x: Math.cos(a) / d, y: Math.sin(a) * Math.cos(a) / d });
+    }
+    return resample(pts, N);
+  }
+};
+
+function setPresetActive(name) {
+  document.querySelectorAll('#presets button').forEach(b => {
+    b.classList.toggle('on', b.dataset.p === name);
+  });
+}
+
+$('#presets').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const p = b.dataset.p;
+  setPresetActive(p);
+  if (p === 'draw') {
+    path = []; coefs = []; trail = []; playing = false; raw = [];
+    errShown = '—'; $('#hint').style.opacity = 1;
+    drawSpectrum(); updateStats(); drawFrame();
+    return;
+  }
+  const fn = PRESETS[p];
+  if (fn) setPath(normalize(fn()));
+});
+
+/* ---------- 控件 ---------- */
+$('#harm').addEventListener('input', e => {
+  M = +e.target.value;
+  $('#harmV').textContent = M;
+  computeError(); updateStats();
+  trail = []; drawFrame();
+});
+$('#spd').addEventListener('input', e => {
+  speed = +e.target.value / 100;
+  $('#spdV').textContent = speed.toFixed(1) + '×';
+});
+$('#circles').addEventListener('click', e => {
+  showCircles = !showCircles;
+  e.currentTarget.classList.toggle('on', showCircles);
+  drawFrame();
+});
+$('#replay').addEventListener('click', () => {
+  if (!coefs.length) return;
+  t = 0; trail = []; playing = true; drawFrame();
+});
+
+// 误差只在谐波数变化时算，避免每帧开销
+const origSetPath = setPath;
+setPath = function (pts, keep) { origSetPath(pts, keep); computeError(); updateStats(); };
+
+/* ---------- 启动 ---------- */
+resize();
+computeError();
+updateStats();
+requestAnimationFrame(loop);
+
+// 离线缓存：只在 https / localhost 下注册（file:// 协议跳过）
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
